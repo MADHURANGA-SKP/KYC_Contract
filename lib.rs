@@ -19,14 +19,14 @@ mod kyc_contract {
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
     pub struct User {
         user_id: AccountId,
-        name: Vec<u8>,
-        address: Vec<u8>,
-        dob: Vec<u8>,
+        name: String,
+        address: String,
+        dob: String,
         status: Status,
     }
 
     #[ink(storage)]
-    pub struct KycContract {
+    pub struct Kyccontract {
         users: Mapping<AccountId, User>,
         kyc_status: Mapping<AccountId, Status>,
         blacklists: Mapping<AccountId, bool>,
@@ -42,9 +42,10 @@ mod kyc_contract {
         UserNotFound,
         VerificationFailed,
         Blacklisted,
+        InvalidResultType,
     }
 
-    impl KycContract {
+    impl Kyccontract {
         #[ink(constructor)]
         pub fn new(admin: AccountId) -> Self {
             Self {
@@ -56,15 +57,28 @@ mod kyc_contract {
         }
 
         #[ink(message)]
+        pub fn set_status(&mut self, status: String) -> Result<(), KycError> {
+            self.kyc_status = match status.as_str(){
+                "Pending" => Status::Pending,
+                "Verified" => Status::Verified,
+                "Rejected" => Status::Rejected,
+                _ => {
+                    return Err(KycError::InvalidResultType)
+                }
+            };
+            Ok(());
+        }
+
+        #[ink(message)]
         pub fn register_user(
             &mut self,
-            name: Vec<u8>,
-            address: Vec<u8>,
-            dob: Vec<u8>,
+            name: String,
+            address: String,
+            dob: String,
         ) -> Result<(), KycError> {
             let caller = self.env().caller();
 
-            if self.users.contains(&caller) {
+            if self.users.contains(caller) {
                 return Err(KycError::AlreadyRegistered);
             }
 
@@ -76,8 +90,8 @@ mod kyc_contract {
                 status: Status::Pending,
             };
 
-            self.users.insert(&caller, &new_user);
-            self.kyc_status.insert(&caller, &Status::Pending);
+            self.users.insert(caller, &new_user);
+            self.kyc_status.insert(caller, &Status::Pending);
 
             Ok(())
         }
@@ -88,11 +102,11 @@ mod kyc_contract {
                 return Err(KycError::NotAuthorized);
             }
 
-            if !self.users.contains(&user) {
+            if !self.users.contains(user) {
                 return Err(KycError::UserNotFound);
             }
 
-            self.kyc_status.insert(&user, &Status::Verified);
+            self.kyc_status.insert(user, &Status::Verified);
             Ok(())
         }
 
@@ -102,11 +116,11 @@ mod kyc_contract {
                 return Err(KycError::NotAuthorized);
             }
 
-            if !self.users.contains(&user) {
+            if !self.users.contains(user) {
                 return Err(KycError::UserNotFound);
             }
 
-            self.kyc_status.insert(&user, &Status::Rejected);
+            self.kyc_status.insert(user, &Status::Rejected);
             Ok(())
         }
 
@@ -116,18 +130,37 @@ mod kyc_contract {
                 return Err(KycError::NotAuthorized);
             }
 
-            self.blacklists.insert(&user, &true);
+            self.blacklists.insert(user, &true);
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn remove_blacklist_user(&mut self, user: AccountId) -> Result<(), KycError> {
+            if self.env().caller() != self.admin {
+                return Err(KycError::NotAuthorized);
+            }
+
+            self.blacklists.insert(user, &false);
             Ok(())
         }
 
         #[ink(message)]
         pub fn is_blacklisted(&self, user: AccountId) -> bool {
-            self.blacklists.get(&user).unwrap_or(false)
+            self.blacklists.get(user).unwrap_or(false)
         }
 
         #[ink(message)]
         pub fn get_user_status(&self, user: AccountId) -> Option<Status> {
-            self.kyc_status.get(&user)
+            self.kyc_status.get(user)
+        }
+
+        #[ink(message)]
+        pub fn get_user(&self, user: AccountId) -> User {
+            let single_user = self
+                .users
+                .get(user)
+                .expect("Oh no, user Not Found.!");
+            single_user
         }
     }
 }
