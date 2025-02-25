@@ -1,48 +1,13 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
 
 #[ink::contract]
-mod kycContract {
-
-    //import nessasary dependancies for the contract implmentation
-    use ink::prelude::format;
-    use ink::prelude::vec::Vec;
-    use ink::primitives::AccountId;
+mod kyc_contract {
     use ink::storage::Mapping;
-    use scale::{Decode,Encode};
-    use ink::storage::collections::HashMap;
-    use ink::env::AccountId;
+    use scale::{Decode, Encode};
+    use ink::prelude::vec::Vec;
 
-    /// Defines the storage of your contract.
-    #[ink(storage)]
-    pub struct KycContract {
-        users: HashMap<AccountId, User>,
-        kycstatus: HashMap<AccountId, Status>,
-        blacklists : HashMap<AccountId, bool>,
-        admin: AccountId,
-    }
-
-    /// A custom Struct for User
-    #[ink::scale_derive(Encode, Decode, TypeInfo)]
-    #[cfg_attr(
-        feature = "std",
-        derive(ink::storage::traits::StorageLayout)
-    )]
-    pub struct User {
-        user_id: u8,
-        user : AccountId,
-        name: Vec<u8>,
-        address: Vec<u8>,
-        dob: Vec<u8>,
-        userstatus: Status,
-    }
-
-    /// Enum for User Status
-    // For catching errors that happens during shop operations
-    #[derive(Encode, Decode, Debug, Clone)]
-    #[cfg_attr(
-        feature = "std",
-        derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-    )]
+    #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
     #[allow(clippy::cast_possible_truncation)]
     pub enum Status {
         Pending,
@@ -50,279 +15,121 @@ mod kycContract {
         Rejected,
     }
 
-    //implment methods for User Struct
-    impl User {
-        fn new(
-            user_id: u8,
-            user : AccountId,
+    #[derive(Debug, PartialEq, Eq, Encode, Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    pub struct User {
+        user_id: AccountId,
+        name: Vec<u8>,
+        address: Vec<u8>,
+        dob: Vec<u8>,
+        status: Status,
+    }
+
+    #[ink(storage)]
+    pub struct KycContract {
+        users: Mapping<AccountId, User>,
+        kyc_status: Mapping<AccountId, Status>,
+        blacklists: Mapping<AccountId, bool>,
+        admin: AccountId,
+    }
+
+    #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
+    #[allow(clippy::cast_possible_truncation)]
+    pub enum KycError {
+        AlreadyRegistered,
+        NotAuthorized,
+        UserNotFound,
+        VerificationFailed,
+        Blacklisted,
+    }
+
+    impl KycContract {
+        #[ink(constructor)]
+        pub fn new(admin: AccountId) -> Self {
+            Self {
+                users: Mapping::default(),
+                kyc_status: Mapping::default(),
+                blacklists: Mapping::default(),
+                admin,
+            }
+        }
+
+        #[ink(message)]
+        pub fn register_user(
+            &mut self,
             name: Vec<u8>,
             address: Vec<u8>,
             dob: Vec<u8>,
-            userstatus: Status 
-        ) -> Self {
-           Self {
-            user_id,
-            user,
-            name,
-            address,
-            dob,
-            userstatus: Pending,
-           }
-        }
-    }
+        ) -> Result<(), KycError> {
+            let caller = self.env().caller();
 
-    /// A custom Struct for KYCVerification 
-    #[ink::scale_derive(Encode, Decode, TypeInfo)]
-    #[cfg_attr(
-        feature = "std",
-        derive(ink::storage::traits::StorageLayout)
-    )]
-    pub struct KYC_Verification  {
-        user_id: AccountId,
-        kyc_status: Status,
-        updated_by: AccountId,
-        updated_timestamp: u8,
-    }
-
-    //implment methods for KYC_Verification
-    impl KYC_Verification {
-        pub fn new(
-            user_id: AccountId,
-            kyc_status: Status,
-            updated_by: AccountId,
-            updated_timestamp: u8,
-        ) -> Self {
-            Self {
-                user_id,
-                kyc_status,
-                updated_by,
-                updated_timestamp,
-            }
-        }
-    }
-
-    /// A custom Struct for KYCVerification 
-    #[ink::scale_derive(Encode, Decode, TypeInfo)]
-    #[cfg_attr(
-        feature = "std",
-        derive(ink::storage::traits::StorageLayout)
-    )]
-    pub struct RBAC  {
-        admin: AccountId,
-    }
-    
-    //implment methods for RBAC
-    impl RBAC{
-        fn is_admin(&self, caller: AccountId) -> bool {
-            self.admin = caller
-        }
-    }
-
-    /// A custom Struct for KYCVerification 
-    #[ink::scale_derive(Encode, Decode, TypeInfo)]
-    #[cfg_attr(
-        feature = "std",
-        derive(ink::storage::traits::StorageLayout)
-    )]
-    pub struct KYC_Status  {
-        user_id: AccountId,
-        verification_timestamp: u64,
-        expiray_timestamp: u64,
-    }
-
-    //implement methods for KYC_Status
-    impl KYC_Status{
-        fn is_expired(&self, current_timestamp: u64) -> bool {
-            current_timestamp > self.expiray_timestamp
-        }
-    }
-
-    /// A custom Struct for KYCVerification 
-    #[ink::scale_derive(Encode, Decode, TypeInfo)]
-    #[cfg_attr(
-        feature = "std",
-        derive(ink::storage::traits::StorageLayout)
-    )]
-    pub struct BlackListed_User  {
-        blacklist: StorageHashMap<AccountId, bool>
-    }
-
-    //implement methods for BlackListed_User
-    impl BlackListed_User{
-        fn add_to_black_list(&self, user_id: AccountId) {
-            self.blacklist.insert(user_id, true)
-        }
-
-        fn remove_from_black_list(&self, user_id: AccountId) {
-            self.blacklist.insert(user_id, false)
-        }
-
-        fn is_blacklist(&self, user_id: AccountId) -> bool {
-            *self.blacklist.get(user_id).unwrap_or(&false)
-        }
-    }
-
-    // For catching errors that happens during Kyc operations
-    #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    #[allow(clippy::cast_possible_truncation)]
-    pub enum KycContractErrors {
-        //Error type for different errors
-        InvalidInput,
-        VerficationFaild,
-        KYCExpired,
-        NotAuthorized,
-        UserNotFound,
-        AlreadyRegisterd,
-    }
-
-    pub type Result<T> = core::result::Result<T,BurgerShopError>;
-
-    //implement the contract
-    impl KycContract {
-        /// Constructor that initializes the `bool` value to the given `init_value`.
-        #[ink(constructor)]
-        pub fn new() -> Self {
-            let users_storage: HashMap<AccountId, User> = HashMap::new(),
-            let kycstatus_storage: HashMap<AccountId, Status> = HashMap::new(),
-            let blacklists_storage : HashMap<AccountId, bool> = HashMap::new(),
-            let admin_storage: AccountId = AccountId::new(),
-
-            Self {
-                users: users_storage,
-                kycstatus: kycstatus_storage,
-                blacklists: blacklists_storage,
-                admin: admin_storage, 
-            }
-        }
-
-        /// Constructor that initializes the `bool` value to `false`.
-        ///
-        /// Constructors can delegate to other constructors.
-        // #[ink(constructor)]
-        // pub fn default() -> Self {
-        //     Self::new(Default::default())
-        // }
-
-        /// A message that can be called on instantiated contracts.
-        /// This one flips the value of the stored `bool` from `true`
-        /// to `false` and vice versa.
-        #[ink(message)]
-        pub fn register_user(&mut self, users: HashMap<AccountId, User>) -> Result<(), Error> {
-            let caller = self.env().caller()
-
-            if self.users.contains_key(&caller) {
-                return Err(Error::AlreadyRegisterd)
+            if self.users.contains(&caller) {
+                return Err(KycError::AlreadyRegistered);
             }
 
-            if user == user::default() {
-                return(Err::InvalidInput)
-            }
+            let new_user = User {
+                user_id: caller,
+                name,
+                address,
+                dob,
+                status: Status::Pending,
+            };
 
-            self.user.insert(caller, users)
-        }
-
-        /// Simply returns the current value of our `bool`.
-        #[ink(message)]
-        pub fn get(&self) -> bool {
-            self.value
-        }
-    }
-
-    /// Unit tests in Rust are normally defined within such a `#[cfg(test)]`
-    /// module and test functions are marked with a `#[test]` attribute.
-    /// The below code is technically just normal Rust code.
-    #[cfg(test)]
-    mod tests {
-        /// Imports all the definitions from the outer scope so we can use them here.
-        use super::*;
-
-        /// We test if the default constructor does its job.
-        #[ink::test]
-        fn default_works() {
-            let kycContract = KycContract::default();
-            assert_eq!(kycContract.get(), false);
-        }
-
-        /// We test a simple use case of our contract.
-        #[ink::test]
-        fn it_works() {
-            let mut kycContract = KycContract::new(false);
-            assert_eq!(kycContract.get(), false);
-            kycContract.flip();
-            assert_eq!(kycContract.get(), true);
-        }
-    }
-
-
-    /// This is how you'd write end-to-end (E2E) or integration tests for ink! contracts.
-    ///
-    /// When running these you need to make sure that you:
-    /// - Compile the tests with the `e2e-tests` feature flag enabled (`--features e2e-tests`)
-    /// - Are running a Substrate node which contains `pallet-contracts` in the background
-    #[cfg(all(test, feature = "e2e-tests"))]
-    mod e2e_tests {
-        /// Imports all the definitions from the outer scope so we can use them here.
-        use super::*;
-
-        /// A helper function used for calling contract messages.
-        use ink_e2e::ContractsBackend;
-
-        /// The End-to-End test `Result` type.
-        type E2EResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-
-        /// We test that we can upload and instantiate the contract using its default constructor.
-        #[ink_e2e::test]
-        async fn default_works(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
-            // Given
-            let mut constructor = KycContractRef::default();
-
-            // When
-            let contract = client
-                .instantiate("kycContract", &ink_e2e::alice(), &mut constructor)
-                .submit()
-                .await
-                .expect("instantiate failed");
-            let call_builder = contract.call_builder::<KycContract>();
-
-            // Then
-            let get = call_builder.get();
-            let get_result = client.call(&ink_e2e::alice(), &get).dry_run().await?;
-            assert!(matches!(get_result.return_value(), false));
+            self.users.insert(&caller, &new_user);
+            self.kyc_status.insert(&caller, &Status::Pending);
 
             Ok(())
         }
 
-        /// We test that we can read and write a value from the on-chain contract.
-        #[ink_e2e::test]
-        async fn it_works(mut client: ink_e2e::Client<C, E>) -> E2EResult<()> {
-            // Given
-            let mut constructor = KycContractRef::new(false);
-            let contract = client
-                .instantiate("kycContract", &ink_e2e::bob(), &mut constructor)
-                .submit()
-                .await
-                .expect("instantiate failed");
-            let mut call_builder = contract.call_builder::<KycContract>();
+        #[ink(message)]
+        pub fn verify_user(&mut self, user: AccountId) -> Result<(), KycError> {
+            if self.env().caller() != self.admin {
+                return Err(KycError::NotAuthorized);
+            }
 
-            let get = call_builder.get();
-            let get_result = client.call(&ink_e2e::bob(), &get).dry_run().await?;
-            assert!(matches!(get_result.return_value(), false));
+            if !self.users.contains(&user) {
+                return Err(KycError::UserNotFound);
+            }
 
-            // When
-            let flip = call_builder.flip();
-            let _flip_result = client
-                .call(&ink_e2e::bob(), &flip)
-                .submit()
-                .await
-                .expect("flip failed");
-
-            // Then
-            let get = call_builder.get();
-            let get_result = client.call(&ink_e2e::bob(), &get).dry_run().await?;
-            assert!(matches!(get_result.return_value(), true));
-
+            self.kyc_status.insert(&user, &Status::Verified);
             Ok(())
+        }
+
+        #[ink(message)]
+        pub fn reject_user(&mut self, user: AccountId) -> Result<(), KycError> {
+            if self.env().caller() != self.admin {
+                return Err(KycError::NotAuthorized);
+            }
+
+            if !self.users.contains(&user) {
+                return Err(KycError::UserNotFound);
+            }
+
+            self.kyc_status.insert(&user, &Status::Rejected);
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn blacklist_user(&mut self, user: AccountId) -> Result<(), KycError> {
+            if self.env().caller() != self.admin {
+                return Err(KycError::NotAuthorized);
+            }
+
+            self.blacklists.insert(&user, &true);
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn is_blacklisted(&self, user: AccountId) -> bool {
+            self.blacklists.get(&user).unwrap_or(false)
+        }
+
+        #[ink(message)]
+        pub fn get_user_status(&self, user: AccountId) -> Option<Status> {
+            self.kyc_status.get(&user)
         }
     }
 }
+
+
