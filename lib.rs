@@ -4,7 +4,7 @@
 mod kyc_contract {
     use ink::storage::Mapping;
     use scale::{Decode, Encode};
-    use ink::prelude::vec::Vec;
+    use ink::prelude::string::String;
 
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout))]
@@ -13,6 +13,17 @@ mod kyc_contract {
         Pending,
         Verified,
         Rejected,
+    }
+
+    impl From<&str> for Status {
+        fn from(sts: &str) -> Self {
+            match sts {
+                "Pending" => Status::Pending,
+                "Verified" => Status::Verified,
+                "Rejected" => Status::Rejected,
+                _ => Status::Pending, 
+            }
+        }
     }
 
     #[derive(Debug, PartialEq, Eq, Encode, Decode)]
@@ -56,18 +67,6 @@ mod kyc_contract {
             }
         }
 
-        #[ink(message)]
-        pub fn set_status(&mut self, status: String) -> Result<(), KycError> {
-            self.kyc_status = match status.as_str(){
-                "Pending" => Status::Pending,
-                "Verified" => Status::Verified,
-                "Rejected" => Status::Rejected,
-                _ => {
-                    return Err(KycError::InvalidResultType)
-                }
-            };
-            Ok(());
-        }
 
         #[ink(message)]
         pub fn register_user(
@@ -75,6 +74,7 @@ mod kyc_contract {
             name: String,
             address: String,
             dob: String,
+            ts: String,
         ) -> Result<(), KycError> {
             let caller = self.env().caller();
 
@@ -82,16 +82,17 @@ mod kyc_contract {
                 return Err(KycError::AlreadyRegistered);
             }
 
+            let status = Status::from(ts.as_str());
+
             let new_user = User {
                 user_id: caller,
                 name,
                 address,
                 dob,
-                status: Status::Pending,
+                status,
             };
 
             self.users.insert(caller, &new_user);
-            self.kyc_status.insert(caller, &Status::Pending);
 
             Ok(())
         }
